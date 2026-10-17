@@ -366,6 +366,10 @@ const P_DEFS = [
   ['v_cont','int',0,20,''],         ['v_seed','int',2,40,''],     ['snapPitch','num',0.5,100,'mm'],
 ];
 const P = {};                          // current parameter values (validated)
+// UI state mirrored into P so the physics works even if DOM controls are absent
+// (headless tests / programmatic API). readAllParams() keeps these in sync.
+P.model = 'A';                         // 'A' | 'B' | 'C' solver model
+P.noniso = false;                      // isothermal flag
 
 // ---- application state ----
 const S = {
@@ -701,7 +705,7 @@ function allocFields(N){
 
 // Arrhenius viscosity multiplier: exp(E/R·(1/T − 1/Tref)), T in Kelvin. [source: prompt spec]
 function arrhenius(TdegC){
-  if(!document.getElementById('p_noniso').checked)return 1;
+  if(!P.noniso)return 1;
   const TK=TdegC+273.15, Tref=P.m_Tc+273.15;
   return Math.exp(P.m_E/R_GAS*(1/TK-1/Tref));
 }
@@ -805,7 +809,7 @@ function updateEtaFromGrad(){
     const gy=((j+1<ny?F.p[k+nx]:F.p[k])-(j>0?F.p[k-nx]:F.p[k]))/(2*hm);
     const gmag=Math.hypot(gx,gy);         // Pa/m
     const gd=Math.max(gmag*h/(2*Math.max(F.eta[k]>1?F.eta[k]:1,1)),1e-3); // γ̇ s⁻¹ (uses prev η, one lag)
-    const T=document.getElementById('p_noniso').checked?F.temp[k]:P.m_Tc;
+    const T=P.noniso?F.temp[k]:P.m_Tc;
     const eta=effEta(gd,T||P.m_Tc);
     F.eta[k]=eta;
     F.Scond[k]=(h*h)/(12*eta);            // S = h²/(12η)  [m]  (∇·(S∇p)=0 form after gap factor absorb)
@@ -885,7 +889,7 @@ function vofMarch(){
     if(S.cancelFlag)return false;
     simT+=dt;
     // temperature decay for non-isothermal: T ← Tm + (T−Tm)·exp(−dt/τ) once filled [Newton cooling]
-    if(document.getElementById('p_noniso').checked){
+    if(P.noniso){
       const decay=Math.exp(-dt/Math.max(P.p_cooltau,1e-6));
       for(let k=0;k<N;k++)if(f[k]>0){
         F.temp[k]=P.m_Tm+(F.temp[k]-P.m_Tm)*decay;
@@ -1036,7 +1040,7 @@ function medianFill(){
 // T(x,y,t)=Tm+(Tc−Tm)·exp(−t_filled/τ). Non-iso off → uniform Tc. [Newton cooling]
 function tempField(){
   const N=G.nx*G.ny;
-  if(!document.getElementById('p_noniso').checked){F.temp.fill(P.m_Tc);return;}
+  if(!P.noniso){F.temp.fill(P.m_Tc);return;}
   const tau=Math.max(P.p_cooltau,1e-6);
   for(let k=0;k<N;k++){
     if(!G.cav[k]){F.temp[k]=P.m_Tm;continue;}
@@ -1560,13 +1564,20 @@ function projectJSON(){
   return {
     schema: SCHEMA_VER, app:'smc-compression-molding-sim', created:new Date().toISOString(),
     shapes:S.shapes, gates:S.gates, params:{...P},
-    ui:{model:document.getElementById('p_model').value,cmap:document.getElementById('v_cmap').value,
-        mode:document.getElementById('v_mode').value,noniso:document.getElementById('p_noniso').checked}
+    ui:{model:P.model,cmap:document.getElementById('v_cmap').value,
+        mode:document.getElementById('v_mode').value,noniso:P.noniso}
   };
 }
 function downloadBlob(blob,name){
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
-  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},400);
+  // offline-safe: prefer object URLs; fall back to data URL if unavailable (file:// sandboxes)
+  const a=document.createElement('a');a.download=name;a.rel='noopener';
+  const fire=u=>{a.href=u;document.body.appendChild(a);a.click();a.remove();};
+  if(typeof URL!=='undefined'&&typeof URL.createObjectURL==='function'){
+    const u=URL.createObjectURL(blob);fire(u);setTimeout(()=>URL.revokeObjectURL(u),400);return;
+  }
+  const fr=new FileReader();          // fallback: base64 data URL (no createObjectURL support)
+  fr.onload=()=>fire(fr.result);fr.onerror=()=>setMsg('Download failed (Blob read error)',true);
+  fr.readAsDataURL(blob);
 }
 function saveProject(){
   downloadBlob(new Blob([JSON.stringify(projectJSON(),null,1)],{type:'application/json'}),'smc-project.json');
@@ -1603,10 +1614,10 @@ function loadProjectText(txt){
     if(def)setInputValue(id,clampNum(+v,def[2],def[3]));
   }
   if(o.ui){
-    if(o.ui.model)document.getElementById('p_model').value=o.ui.model;
+    if(o.ui.model)setModel(o.ui.model);
     if(o.ui.cmap)document.getElementById('v_cmap').value=o.ui.cmap;
     if(o.ui.mode)document.getElementById('v_mode').value=o.ui.mode;
-    document.getElementById('p_noniso').checked=!!o.ui.noniso;
+    setNoniso(o.ui.noniso);
   }
   pushHistory();refreshShapeList();buildEditor();fitView();runSolve();
   setMsg('Project loaded (schema v'+o.schema+')');
@@ -1629,7 +1640,7 @@ function exportCSV(){
   if(!G.cav){setMsg('Nothing solved yet',true);return;}
   const nx=G.nx,ny=G.ny;
   const parts=[];
-  parts.push('# SMC sim export v'+SCHEMA_VER+' | model='+document.getElementById('p_model').value+
+  parts.push('# SMC sim export v'+SCHEMA_VER+' | model='+P.model+
     ' | grid='+nx+'x'+ny+' | cell='+G.cell.toFixed(4)+'mm | origin='+G.ox.toFixed(2)+','+G.oy.toFixed(2)+
     ' | tCur='+S.tCur+'s | eta0='+P.m_eta0+'Pas n='+P.m_n+' vf='+P.m_vf+' hgap='+P.p_hgap+'mm pinj='+P.p_pinj+'MPa\n');
   parts.push('i,j,x_mm,y_mm,cavity,insert,charge,filled,fill_time_s,pressure_Pa,fiber_conc,velocity_mm_s,temperature_C,cure_alpha,A11,A22,A12,weld,weld_strength,air_trap\n');
@@ -1785,7 +1796,15 @@ function readParam(id){
   if(String(v)!==String(raw)&&!bad)el.value=v;      // reflect snap without nagging
   P[id]=v;
 }
-function readAllParams(){for(const d of P_DEFS)readParam(d[0]);}
+function readAllParams(){
+  for(const d of P_DEFS)readParam(d[0]);
+  // sync UI-mirrored flags (fall back to current P values if DOM is absent)
+  const elM=document.getElementById('p_model');if(elM)P.model=elM.value;
+  const elN=document.getElementById('p_noniso');if(elN)P.noniso=!!elN.checked;
+}
+// programmatic setters — used by loadProject, presets and the public API
+function setModel(m){m=(m||'A').toUpperCase();if('ABC'.includes(m))P.model=m;const el=document.getElementById('p_model');if(el&&el.value!==m)el.value=m;}
+function setNoniso(b){P.noniso=!!b;const el=document.getElementById('p_noniso');if(el)el.checked=!!b;}
 
 // ---- shape list UI (layers/z-order visible top→bottom as last-drawn-on-top) ----
 function refreshShapeList(){
@@ -2073,12 +2092,15 @@ function runSolve(){
   allocFields(G.nx*G.ny);
   updateStatusGrid();
   showProg(true);setProg('Rasterized '+G.nx+'×'+G.ny);
-  const model=document.getElementById('p_model').value;
+  const model=P.model;
   S.solInfo.model=model;
   $('hdrModel').textContent={A:'Fast (Dijkstra)',B:'Hele-Shaw SOR',C:'VOF front tracking'}[model];
   // temperature init before viscosity coupling uses it
   F.temp.fill(P.m_Tc);
   const finish=(ok)=>{
+    // record iterative-solver stats for status bar + public API (model A: no iterations)
+    S.solInfo.iters=model==='A'?0:SOR.iters;
+    S.solInfo.residual=model==='A'?0:SOR.res;
     if(!ok){showProg(false);S.running=false;setMsg('Cancelled — partial results kept',true);updateStatus(0);return;}
     // shared post-processing for all models (order matters: velocity feeds fields)
     if(model==='A'||model==='C'){velocityFromTime();}
@@ -2320,6 +2342,7 @@ return {
   version:'2.0', state:S, params:P, fields:F, grid:G,
   solve:runSolve, undo:undo, redo:redo, fitView:fitView,
   saveProject, loadProjectText, exportPNG, exportCSV, applyPreset, setViewMode,
+  setModel, setNoniso, readAllParams, projectJSON,
 };
 })();
 
