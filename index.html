@@ -366,6 +366,10 @@ const P_DEFS = [
   ['v_cont','int',0,20,''],         ['v_seed','int',2,40,''],     ['snapPitch','num',0.5,100,'mm'],
 ];
 const P = {};                          // current parameter values (validated)
+// UI state mirrored into P so the physics works even if DOM controls are absent
+// (headless tests / programmatic API). readAllParams() keeps these in sync.
+P.model = 'A';                         // 'A' | 'B' | 'C' solver model
+P.noniso = false;                      // isothermal flag
 
 // ---- application state ----
 const S = {
@@ -701,7 +705,7 @@ function allocFields(N){
 
 // Arrhenius viscosity multiplier: exp(E/R·(1/T − 1/Tref)), T in Kelvin. [source: prompt spec]
 function arrhenius(TdegC){
-  if(!document.getElementById('p_noniso').checked)return 1;
+  if(!P.noniso)return 1;
   const TK=TdegC+273.15, Tref=P.m_Tc+273.15;
   return Math.exp(P.m_E/R_GAS*(1/TK-1/Tref));
 }
@@ -805,7 +809,7 @@ function updateEtaFromGrad(){
     const gy=((j+1<ny?F.p[k+nx]:F.p[k])-(j>0?F.p[k-nx]:F.p[k]))/(2*hm);
     const gmag=Math.hypot(gx,gy);         // Pa/m
     const gd=Math.max(gmag*h/(2*Math.max(F.eta[k]>1?F.eta[k]:1,1)),1e-3); // γ̇ s⁻¹ (uses prev η, one lag)
-    const T=document.getElementById('p_noniso').checked?F.temp[k]:P.m_Tc;
+    const T=P.noniso?F.temp[k]:P.m_Tc;
     const eta=effEta(gd,T||P.m_Tc);
     F.eta[k]=eta;
     F.Scond[k]=(h*h)/(12*eta);            // S = h²/(12η)  [m]  (∇·(S∇p)=0 form after gap factor absorb)
@@ -885,7 +889,7 @@ function vofMarch(){
     if(S.cancelFlag)return false;
     simT+=dt;
     // temperature decay for non-isothermal: T ← Tm + (T−Tm)·exp(−dt/τ) once filled [Newton cooling]
-    if(document.getElementById('p_noniso').checked){
+    if(P.noniso){
       const decay=Math.exp(-dt/Math.max(P.p_cooltau,1e-6));
       for(let k=0;k<N;k++)if(f[k]>0){
         F.temp[k]=P.m_Tm+(F.temp[k]-P.m_Tm)*decay;
@@ -1036,7 +1040,7 @@ function medianFill(){
 // T(x,y,t)=Tm+(Tc−Tm)·exp(−t_filled/τ). Non-iso off → uniform Tc. [Newton cooling]
 function tempField(){
   const N=G.nx*G.ny;
-  if(!document.getElementById('p_noniso').checked){F.temp.fill(P.m_Tc);return;}
+  if(!P.noniso){F.temp.fill(P.m_Tc);return;}
   const tau=Math.max(P.p_cooltau,1e-6);
   for(let k=0;k<N;k++){
     if(!G.cav[k]){F.temp[k]=P.m_Tm;continue;}
@@ -1163,7 +1167,7 @@ const CMAPS={
   gray:makeLUT([[0,[0,0,0]],[1,[255,255,255]]]),
   div:makeLUT([[0,[33,102,172]],[.35,[178,223,251]],[.5,[247,247,247]],[.65,[254,204,149]],[1,[214,96,33]]]), // RdBu-like diverging
 };
-function activeLUT(){return CMAPS[document.getElementById('v_cmap').value]||CMAPS.jet;}
+function activeLUT(){return CMAPS[selVal('v_cmap','jet')]||CMAPS.jet;}
 
 // ---- per-view field accessor: returns {arr, vmin, vmax, unit, fmt} ----
 function fieldFor(mode){
@@ -1266,9 +1270,9 @@ function draw(){
   const [x0,y0]=W2S(G.ox,G.oy+ny*G.cell);       // top-left (model y up)
   const [x1,y1]=W2S(G.ox+nx*G.cell,G.oy);       // bottom-right
   const rw=x1-x0,rh=y1-y0;
-  const smooth=document.getElementById('v_smooth').checked;
-  const mode=document.getElementById('v_mode').value;
-  const compare=document.getElementById('v_compare').checked;
+  const smooth=chk('v_smooth',true);
+  const mode=getViewMode();
+  const compare=chk('v_compare',false);
   ensureImage(nx,ny);
   const lut=activeLUT();
   const tcut=S.tCur>=P.p_tmax-1e-6?null:S.tCur;
@@ -1277,7 +1281,7 @@ function draw(){
     paintField(mode,lut,tcut,smooth);
     ctx.save();ctx.beginPath();ctx.rect(x0,y0,rw/2,rh);ctx.clip();
     ctx.imageSmoothingEnabled=smooth;ctx.drawImage(fieldCanvas,x0,y0,rw,rh);ctx.restore();
-    const mode2=document.getElementById('v_mode2').value;
+    const mode2=selVal('v_mode2','pressure');
     paintField(mode2,lut,tcut,smooth);
     ctx.save();ctx.beginPath();ctx.rect(x0+rw/2,y0,rw/2,rh);ctx.clip();
     ctx.imageSmoothingEnabled=smooth;ctx.drawImage(fieldCanvas,x0,y0,rw,rh);ctx.restore();
@@ -1320,19 +1324,19 @@ function drawOverlays(x0,y0,x1,y1,rw,rh,nx,ny){
   hatches();
   const csx=rw/nx,csy=rh/ny;
   // short-shot (never filled by t_max): blue hatch
-  if(document.getElementById('v_short').checked){
+  if(chk('v_short',true)){
     ctx.fillStyle=hatchBlue;
     for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;
       if(G.cav[k]&&!isFinite(F.t[k]))ctx.fillRect(x0+i*csx,y0+j*csy,csx,csy);}
   }
   // air traps: red hatch
-  if(document.getElementById('v_traps').checked){
+  if(chk('v_traps',true)){
     ctx.fillStyle=hatchRed;
     for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;
       if(F.trap[k])ctx.fillRect(x0+i*csx,y0+j*csy,csx,csy);}
   }
   // cure overlay: orange alpha proportional to α
-  if(document.getElementById('v_cureov').checked){
+  if(chk('v_cureov',false)){
     for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;
       if(G.cav[k]&&F.cure[k]>0.03){
         ctx.fillStyle='rgba(255,140,40,'+(0.55*Math.min(F.cure[k],1))+')';
@@ -1340,7 +1344,7 @@ function drawOverlays(x0,y0,x1,y1,rw,rh,nx,ny){
     }
   }
   // weld lines colored by strength (green strong → red weak); thicker where possible
-  if(document.getElementById('v_weldln').checked){
+  if(chk('v_weldln',true)){
     ctx.lineWidth=Math.max(1.6,csx*1.3);ctx.lineCap='round';
     for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;
       if(F.weld[k]){
@@ -1354,15 +1358,15 @@ function drawOverlays(x0,y0,x1,y1,rw,rh,nx,ny){
   // iso-contours via marching squares on the current field
   const ncont=P.v_cont|0;
   if(ncont>0){
-    const fld=fieldFor(document.getElementById('v_mode').value);
+    const fld=fieldFor(getViewMode());
     drawContours(fld,ncont,x0,y0,rw,rh,nx,ny);
   }
   // velocity arrows / streamlines
-  if(document.getElementById('v_vec').checked)drawArrows(x0,y0,rw,rh,nx,ny);
-  if(document.getElementById('v_stream').checked)drawStreamlines(x0,y0,rw,rh,nx,ny);
-  if(document.getElementById('v_glyph').checked)drawGlyphs(x0,y0,rw,rh,nx,ny);
+  if(chk('v_vec',false))drawArrows(x0,y0,rw,rh,nx,ny);
+  if(chk('v_stream',false))drawStreamlines(x0,y0,rw,rh,nx,ny);
+  if(chk('v_glyph',false))drawGlyphs(x0,y0,rw,rh,nx,ny);
   // grid lines
-  if(document.getElementById('v_grid').checked&&csx>3){
+  if(chk('v_grid',false)&&csx>3){
     ctx.strokeStyle='rgba(255,255,255,.08)';ctx.lineWidth=1;ctx.beginPath();
     for(let i=0;i<=nx;i+=Math.max(1,(nx/40)|0)){ctx.moveTo(x0+i*csx,y0);ctx.lineTo(x0+i*csx,y1);}
     for(let j=0;j<=ny;j+=Math.max(1,(ny/40)|0)){ctx.moveTo(x0,y0+j*csy);ctx.lineTo(x1,y0+j*csy);}
@@ -1374,7 +1378,7 @@ function drawOverlays(x0,y0,x1,y1,rw,rh,nx,ny){
 function drawContours(fld,nlev,x0,y0,rw,rh,nx,ny){
   const arr=fld.arr,sc=fld.scale||1;
   const csx=rw/nx,csy=rh/ny;
-  const label=document.getElementById('v_contlab').checked;
+  const label=chk('v_contlab',false);
   ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1;ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='9px sans-serif';
   for(let li=1;li<=nlev;li++){
     const lev=fld.vmin+(fld.vmax-fld.vmin)*li/(nlev+1);
@@ -1478,7 +1482,7 @@ function drawGlyphs(x0,y0,rw,rh,nx,ny){
 }
 
 function drawShapeOutlines(){
-  if(!document.getElementById('v_shapes').checked)return;
+  if(!chk('v_shapes',true))return;
   ctx.lineWidth=1.4;
   for(const sh of S.shapes){
     const col=sh.role==='cavity'?'#37b6ff':sh.role==='insert'?'#ffb454':'#4dd08a';
@@ -1529,7 +1533,7 @@ function drawSnapGuides(){
 
 // ---- colorbar with numeric ticks (bottom-left of canvas) ----
 function drawColorbar(cw,ch){
-  const fld=fieldFor(document.getElementById('v_mode').value);
+  const fld=fieldFor(getViewMode());
   const bx=14,by=ch-46,bw=Math.min(240,cw*0.35),bh=12;
   const lut=activeLUT();
   for(let i=0;i<bw;i++){
@@ -1560,13 +1564,20 @@ function projectJSON(){
   return {
     schema: SCHEMA_VER, app:'smc-compression-molding-sim', created:new Date().toISOString(),
     shapes:S.shapes, gates:S.gates, params:{...P},
-    ui:{model:document.getElementById('p_model').value,cmap:document.getElementById('v_cmap').value,
-        mode:document.getElementById('v_mode').value,noniso:document.getElementById('p_noniso').checked}
+    ui:{model:P.model,cmap:selVal('v_cmap','jet'),
+        mode:getViewMode(),noniso:P.noniso}
   };
 }
 function downloadBlob(blob,name){
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
-  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},400);
+  // offline-safe: prefer object URLs; fall back to data URL if unavailable (file:// sandboxes)
+  const a=document.createElement('a');a.download=name;a.rel='noopener';
+  const fire=u=>{a.href=u;document.body.appendChild(a);a.click();a.remove();};
+  if(typeof URL!=='undefined'&&typeof URL.createObjectURL==='function'){
+    const u=URL.createObjectURL(blob);fire(u);setTimeout(()=>URL.revokeObjectURL(u),400);return;
+  }
+  const fr=new FileReader();          // fallback: base64 data URL (no createObjectURL support)
+  fr.onload=()=>fire(fr.result);fr.onerror=()=>setMsg('Download failed (Blob read error)',true);
+  fr.readAsDataURL(blob);
 }
 function saveProject(){
   downloadBlob(new Blob([JSON.stringify(projectJSON(),null,1)],{type:'application/json'}),'smc-project.json');
@@ -1603,10 +1614,10 @@ function loadProjectText(txt){
     if(def)setInputValue(id,clampNum(+v,def[2],def[3]));
   }
   if(o.ui){
-    if(o.ui.model)document.getElementById('p_model').value=o.ui.model;
-    if(o.ui.cmap)document.getElementById('v_cmap').value=o.ui.cmap;
-    if(o.ui.mode)document.getElementById('v_mode').value=o.ui.mode;
-    document.getElementById('p_noniso').checked=!!o.ui.noniso;
+    if(o.ui.model)setModel(o.ui.model);
+    if(o.ui.cmap){const e=$("v_cmap");if(e)e.value=o.ui.cmap;}
+    if(o.ui.mode)setViewModeMirror(o.ui.mode);
+    setNoniso(o.ui.noniso);
   }
   pushHistory();refreshShapeList();buildEditor();fitView();runSolve();
   setMsg('Project loaded (schema v'+o.schema+')');
@@ -1618,7 +1629,7 @@ function exportPNG(){
   markDirty();
   requestAnimationFrame(()=>{
     const a=document.createElement('a');
-    a.download='smc-'+document.getElementById('v_mode').value+'.png';
+    a.download='smc-'+getViewMode()+'.png';
     a.href=cv.toDataURL('image/png');
     a.click();setMsg('PNG exported');
   });
@@ -1629,7 +1640,7 @@ function exportCSV(){
   if(!G.cav){setMsg('Nothing solved yet',true);return;}
   const nx=G.nx,ny=G.ny;
   const parts=[];
-  parts.push('# SMC sim export v'+SCHEMA_VER+' | model='+document.getElementById('p_model').value+
+  parts.push('# SMC sim export v'+SCHEMA_VER+' | model='+P.model+
     ' | grid='+nx+'x'+ny+' | cell='+G.cell.toFixed(4)+'mm | origin='+G.ox.toFixed(2)+','+G.oy.toFixed(2)+
     ' | tCur='+S.tCur+'s | eta0='+P.m_eta0+'Pas n='+P.m_n+' vf='+P.m_vf+' hgap='+P.p_hgap+'mm pinj='+P.p_pinj+'MPa\n');
   parts.push('i,j,x_mm,y_mm,cavity,insert,charge,filled,fill_time_s,pressure_Pa,fiber_conc,velocity_mm_s,temperature_C,cure_alpha,A11,A22,A12,weld,weld_strength,air_trap\n');
@@ -1696,7 +1707,7 @@ function drawLegend(){
   if(!legCv||!G.cav||!F.t)return;
   const w=legCv.width,h=legCv.height,g=legCtx,lut=activeLUT();
   g.clearRect(0,0,w,h);
-  const fld=fieldFor(document.getElementById('v_mode').value);
+  const fld=fieldFor(getViewMode());
   const bx=8,by=8,bw=w-16,bh=14;
   for(let i=0;i<bw;i++){const li=(i/bw*255)|0;
     g.fillStyle='rgb('+lut[li*3]+','+lut[li*3+1]+','+lut[li*3+2]+')';g.fillRect(bx+i,by,1,bh);}
@@ -1709,7 +1720,7 @@ function drawLegend(){
   }
   g.textAlign='left';
   // weld strength mini-legend when relevant
-  if(document.getElementById('v_weldln').checked){
+  if(chk('v_weldln',true)){
     g.fillStyle='#4dd08a';g.fillRect(w-90,h-12,8,8);g.fillStyle='#cfd8e3';g.fillText('strong',w-80,h-5);
     g.fillStyle='#ff5f56';g.fillRect(w-42,h-12,8,8);g.fillStyle='#cfd8e3';g.fillText('weak',w-32,h-5);
   }
@@ -1756,7 +1767,16 @@ function probeText(i,j){
 // =============================================================================
 
 // ---- helpers ----
+// DOM accessor: returns null (never throws) when the element is absent, so all
+// UI reads degrade gracefully in headless/embedded contexts.
 const $=id=>document.getElementById(id);
+// View mode mirrored into S so rendering works even if #v_mode is absent.
+S.viewMode='fill';
+function getViewMode(){const el=$('v_mode');if(el)return el.value;return S.viewMode;}
+function setViewModeMirror(m){S.viewMode=m;const el=$('v_mode');if(el)el.value=m;}
+// safe checkbox/select readers (default matches original markup defaults)
+function chk(id,def){const el=$(id);return el?(el.type==='checkbox'?el.checked:!!el.value):def;}
+function selVal(id,def){const el=$(id);return el&&el.value?el.value:def;}
 function clampNum(v,lo,hi){v=+v;if(!isFinite(v))return lo;return Math.max(lo,Math.min(hi,v));}
 function countOnes(a){let n=0;for(let i=0;i<a.length;i++)n+=a[i]?1:0;return n;}
 function setMsg(msg,warn){const el=$('stMsg');el.textContent=msg;el.style.color=warn?'var(--warn)':'var(--acc2)';if(msg&&!warn)setTimeout(()=>{if(el.textContent===msg)el.textContent='';},4000);}
@@ -1785,7 +1805,15 @@ function readParam(id){
   if(String(v)!==String(raw)&&!bad)el.value=v;      // reflect snap without nagging
   P[id]=v;
 }
-function readAllParams(){for(const d of P_DEFS)readParam(d[0]);}
+function readAllParams(){
+  for(const d of P_DEFS)readParam(d[0]);
+  // sync UI-mirrored flags (fall back to current P values if DOM is absent)
+  const elM=document.getElementById('p_model');if(elM)P.model=elM.value;
+  const elN=document.getElementById('p_noniso');if(elN)P.noniso=!!elN.checked;
+}
+// programmatic setters — used by loadProject, presets and the public API
+function setModel(m){m=(m||'A').toUpperCase();if('ABC'.includes(m))P.model=m;const el=document.getElementById('p_model');if(el&&el.value!==m)el.value=m;}
+function setNoniso(b){P.noniso=!!b;const el=document.getElementById('p_noniso');if(el)el.checked=!!b;}
 
 // ---- shape list UI (layers/z-order visible top→bottom as last-drawn-on-top) ----
 function refreshShapeList(){
@@ -2073,12 +2101,15 @@ function runSolve(){
   allocFields(G.nx*G.ny);
   updateStatusGrid();
   showProg(true);setProg('Rasterized '+G.nx+'×'+G.ny);
-  const model=document.getElementById('p_model').value;
+  const model=P.model;
   S.solInfo.model=model;
   $('hdrModel').textContent={A:'Fast (Dijkstra)',B:'Hele-Shaw SOR',C:'VOF front tracking'}[model];
   // temperature init before viscosity coupling uses it
   F.temp.fill(P.m_Tc);
   const finish=(ok)=>{
+    // record iterative-solver stats for status bar + public API (model A: no iterations)
+    S.solInfo.iters=model==='A'?0:SOR.iters;
+    S.solInfo.residual=model==='A'?0:SOR.res;
     if(!ok){showProg(false);S.running=false;setMsg('Cancelled — partial results kept',true);updateStatus(0);return;}
     // shared post-processing for all models (order matters: velocity feeds fields)
     if(model==='A'||model==='C'){velocityFromTime();}
@@ -2170,7 +2201,7 @@ function playStep(){
 
 // ---- view mode buttons & selects sync ----
 function setViewMode(m){
-  document.getElementById('v_mode').value=m;
+  setViewModeMirror(m);
   for(const b of document.querySelectorAll('#viewBtns button'))b.classList.toggle('on',b.dataset.m===m);
   drawLegend();markDirty();
 }
@@ -2317,9 +2348,10 @@ document.addEventListener('DOMContentLoaded',boot);
 
 // public API surface (single global; nothing else leaks to window)
 return {
-  version:'2.0', state:S, params:P, fields:F, grid:G,
+  version:'2.1', state:S, params:P, fields:F, grid:G, solver:SOR,
   solve:runSolve, undo:undo, redo:redo, fitView:fitView,
   saveProject, loadProjectText, exportPNG, exportCSV, applyPreset, setViewMode,
+  setModel, setNoniso, readAllParams, projectJSON,
 };
 })();
 
