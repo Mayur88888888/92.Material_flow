@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMC Compression Molding Simulator — v2</title>
+<style>
+/* ================= LAYOUT / VISUAL STYLE (dark engineering theme) ================= */
+:root{
+  --bg:#11151a; --panel:#171d24; --panel2:#1d2530; --edge:#2a3542;
+  --txt:#cfd8e3; --dim:#8494a7; --acc:#37b6ff; --acc2:#ffb454; --warn:#ff5f56; --ok:#4dd08a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+  font:13px/1.45 "Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+#app{display:flex;flex-direction:column;height:100%}
+header{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);
+  border-bottom:1px solid var(--edge)}
+header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.4px}
+header .tag{font-size:10px;color:var(--dim);border:1px solid var(--edge);padding:1px 6px;border-radius:10px}
+#main{display:flex;flex:1;min-height:0}
+/* sidebar */
+#sidebar{width:330px;min-width:270px;background:var(--panel);border-right:1px solid var(--edge);
+  overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+details.grp{background:var(--panel2);border:1px solid var(--edge);border-radius:6px}
+details.grp>summary{cursor:pointer;padding:6px 10px;font-weight:600;font-size:12px;
+  text-transform:uppercase;letter-spacing:.6px;color:var(--acc);list-style:none}
+details.grp>summary::before{content:"▸ ";transition:transform .1s}
+details.grp[open]>summary::before{content:"▾ "}
+.grp-body{padding:6px 10px 10px;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--edge)}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.row label{flex:1 1 130px;font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:4px;cursor:help}
+.row input[type=number],.row input[type=text],.row select{
+  flex:0 1 110px;background:#0d1218;border:1px solid var(--edge);color:var(--txt);
+  padding:3px 6px;border-radius:4px;font-size:12px;min-width:0}
+.row input:focus,.row select:focus{outline:none;border-color:var(--acc)}
+.row .unit{font-size:10px;color:var(--dim);flex:0 0 auto}
+input.invalid{border-color:var(--warn)!important;box-shadow:0 0 0 1px var(--warn)}
+.inline-warn{color:var(--warn);font-size:10.5px;display:none;width:100%}
+button{background:#243040;border:1px solid var(--edge);color:var(--txt);padding:4px 9px;
+  border-radius:4px;cursor:pointer;font-size:12px}
+button:hover{background:#2e3d52;border-color:var(--acc)}
+button.primary{background:#14507a;border-color:var(--acc);color:#eaf6ff}
+button.primary:hover{background:#1a66a0}
+button.danger{border-color:#7a2a26}
+button.small{padding:2px 7px;font-size:11px}
+button.active{background:#14507a;border-color:var(--acc)}
+select.wide{width:100%}
+.chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);cursor:pointer}
+.chk input{accent-color:var(--acc)}
+.hint{font-size:10.5px;color:var(--dim);font-style:italic}
+.warnbox{font-size:10.5px;color:var(--warn)}
+/* canvas area */
+#center{flex:1;display:flex;flex-direction:column;min-width:0}
+#toolbar{display:flex;gap:6px;align-items:center;padding:6px 10px;background:var(--panel);
+  border-bottom:1px solid var(--edge);flex-wrap:wrap}
+.seg{display:flex;border:1px solid var(--edge);border-radius:5px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:var(--panel2)}
+.seg button.on{background:#14507a;color:#fff}
+#canvasWrap{flex:1;position:relative;background:#0a0d11;overflow:hidden;min-height:220px}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+#tip{position:absolute;pointer-events:none;background:rgba(10,14,18,.94);border:1px solid var(--acc);
+  border-radius:6px;padding:6px 9px;font-size:11px;white-space:pre;display:none;z-index:6;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);line-height:1.5}
+#progress{position:absolute;top:8px;left:50%;transform:translateX(-50%);display:none;z-index:7;
+  background:rgba(12,17,22,.95);border:1px solid var(--acc);border-radius:6px;padding:6px 10px;
+  align-items:center;gap:8px;font-size:11px}
+#statusbar{padding:4px 12px;background:var(--panel);border-top:1px solid var(--edge);
+  font-size:11px;color:var(--dim);display:flex;gap:16px;flex-wrap:wrap}
+#statusbar b{color:var(--txt);font-weight:600}
+/* analysis panel */
+#analysis{width:280px;background:var(--panel);border-left:1px solid var(--edge);overflow-y:auto;
+  padding:8px;display:flex;flex-direction:column;gap:8px}
+.stat{display:flex;justify-content:space-between;font-size:11.5px;border-bottom:1px dotted var(--edge);padding:2px 0}
+.stat span:last-child{color:var(--acc2);font-variant-numeric:tabular-nums}
+canvas.mini{width:100%;background:#0d1218;border:1px solid var(--edge);border-radius:4px}
+/* shape editor */
+.shape-item{display:flex;align-items:center;gap:6px;padding:3px 6px;border:1px solid var(--edge);
+  border-radius:4px;background:#131920;font-size:11.5px;cursor:pointer}
+.shape-item.sel{border-color:var(--acc);background:#14202c}
+.shape-item .role{font-size:9px;padding:0 5px;border-radius:8px;text-transform:uppercase}
+.role.cavity{background:#14507a;color:#cfeaff}.role.insert{background:#54401c;color:#ffd9a0}
+.role.charge{background:#1c5433;color:#b8f0cc}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;
+  justify-content:center;z-index:50}
+.modal.open{display:flex}
+.modal-card{background:var(--panel);border:1px solid var(--acc);border-radius:8px;max-width:680px;
+  width:92%;max-height:80vh;overflow:auto;padding:16px 20px}
+.modal-card h2{margin-top:0;font-size:15px;color:var(--acc)}
+.kbd{background:#0d1218;border:1px solid var(--edge);border-radius:3px;padding:0 5px;font-family:monospace}
+table{border-collapse:collapse;width:100%;font-size:11.5px}
+td{padding:2px 8px;border-bottom:1px dotted var(--edge);vertical-align:top}
+/* responsive */
+@media (max-width:1100px){#analysis{display:none}}
+@media (max-width:860px){
+  #main{flex-direction:column}
+  #sidebar{width:100%;max-height:42%;order:2;border-right:none;border-top:1px solid var(--edge)}
+  #center{order:1;min-height:55%}
+}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:#2b3a4c;border-radius:5px}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>SMC Compression Molding Simulator</h1>
+  <span class="tag">v2 · offline</span>
+  <span class="tag" id="hdrModel">Fast (Dijkstra)</span>
+  <div style="flex:1"></div>
+  <button id="btnHelp" title="Keyboard shortcuts (?)">? Help</button>
+</header>
+<div id="main">
+
+<!-- ============================ SIDEBAR ============================ -->
+<nav id="sidebar">
+
+<details class="grp" open><summary>Presets &amp; Project</summary><div class="grp-body">
+  <div class="row"><label>Select preset</label>
+    <select id="presetSel" data-tip="Loads a matched set of material + process parameters.">
+      <option value="">— choose —</option>
+      <option value="thin">Thin wall / long flow</option>
+      <option value="thick">Thick charge / short flow</option>
+      <option value="fiber">Fiber-rich</option>
+      <option value="insert">Insert-heavy</option>
+    </select></div>
+  <div class="row">
+    <button id="btnSaveProj" data-tip="Download the whole project (shapes + parameters) as JSON.">💾 Save Project</button>
+    <button id="btnLoadProj" data-tip="Load a previously saved .json project file.">📂 Load Project</button>
+    <input type="file" id="projFile" accept=".json,application/json" style="display:none">
+  </div>
+  <div class="row">
+    <button id="btnExportPNG" data-tip="Export the current canvas (field + overlays) as a PNG image.">🖼 PNG</button>
+    <button id="btnExportCSV" data-tip="Export all grid fields (fill time, pressure, fiber, velocity, temperature, cure) as CSV with metadata headers.">📄 CSV</button>
+  </div>
+  <div class="warnbox" id="loadWarn"></div>
+</div></details>
+
+<details class="grp" open><summary>Geometry — Add Shapes</summary><div class="grp-body">
+  <div class="row"><label>Role</label>
+    <select id="selRole" data-tip="cavity = mold pocket; insert = metal core (blocked); charge = SMC blob (source of resin).">
+      <option value="cavity">cavity</option><option value="insert">insert</option><option value="charge">charge</option>
+    </select></div>
+  <div class="row"><label>Shape type</label>
+    <select id="selType" data-tip="Geometric primitive to add. Units: mm (model space).">
+      <option value="rect">Rectangle</option>
+      <option value="rrect">Rounded rectangle</option>
+      <option value="circle">Circle</option>
+      <option value="ellipse">Ellipse</option>
+      <option value="annulus">Annulus / ring</option>
+      <option value="npoly">Regular polygon</option>
+      <option value="poly">Free polygon</option>
+      <option value="spline">Spline / Bézier closed</option>
+      <option value="path">Path / runner (polyline+width)</option>
+    </select></div>
+  <div class="row"><button id="btnAddShape" class="primary" data-tip="Adds the shape centered in the view. Then drag/resize it on canvas.">＋ Add</button>
+    <button id="btnDelSel" data-tip="Delete selected shapes (Del).">✕ Delete</button>
+    <button id="btnDupSel" data-tip="Duplicate selection (Ctrl+D).">⧉ Dup</button></div>
+  <div class="row">
+    <button class="small" id="btnCopy" data-tip="Copy selection (Ctrl+C)">Copy</button>
+    <button class="small" id="btnPaste" data-tip="Paste clipboard (Ctrl+V)">Paste</button>
+    <button class="small" id="btnUndo" data-tip="Undo (Ctrl+Z)">↶ Undo</button>
+    <button class="small" id="btnRedo" data-tip="Redo (Ctrl+Y / Ctrl+Shift+Z)">↷ Redo</button>
+  </div>
+  <div class="row"><span class="chk"><input type="checkbox" id="ckSnapGrid" checked
+    data-tip="Drag vertices/shapes snapped to the grid pitch below. Shows dashed guides.">Snap grid</span>
+    <span class="chk"><input type="checkbox" id="ckSnapShape" checked
+    data-tip="Snap to edges/centers of other shapes. Highlights snap guides.">Snap shapes</span>
+    <label>Pitch</label><input type="number" id="snapPitch" value="5" min="0.5" step="0.5" data-tip="Grid snap pitch in mm."><span class="unit">mm</span></div>
+  <div class="hint">Drag body = move · handles = resize/rotate · Shift-click = multi-select · rubber-band box on empty area.</div>
+  <div id="shapeList" style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto"></div>
+</div></details>
+
+<details class="grp" open><summary>Numeric Shape Editor</summary><div class="grp-body" id="editorBody">
+  <div class="hint">Select one or more shapes to edit exact values.</div>
+</div></details>
+
+<details class="grp"><summary>Gates</summary><div class="grp-body">
+  <div class="row"><button id="btnGateMode" data-tip="Toggle gate placement mode: click inside the cavity to place injection gates (green diamonds). Gates are the pressure inlet for Models B/C and start cells for Model A.">◎ Gate mode</button>
+    <button id="btnClearGates" data-tip="Remove all gates.">Clear</button></div>
+  <div class="hint" id="gateCount">No gates — charge contact is used as inlet.</div>
+</div></details>
+
+<details class="grp" open><summary>Material (SMC)</summary><div class="grp-body">
+  <div class="row"><label data-tip="Zero-shear / reference viscosity of the resin matrix.">η₀ base viscosity</label><input type="number" id="m_eta0" value="1000" min="1" step="10"><span class="unit">Pa·s</span></div>
+  <div class="row"><label data-tip="Power-law index. n=1 → Newtonian; n<1 → shear-thinning. η = η₀·(1+4·vf)·γ̇^(n−1).">n power-law index</label><input type="number" id="m_n" value="0.6" min="0.05" max="1" step="0.05"></div>
+  <div class="row"><label data-tip="Fiber volume fraction (0–0.7). Increases viscosity via Einstein–type factor (1+4·vf).">vf fiber volume frac.</label><input type="number" id="m_vf" value="0.25" min="0" max="0.7" step="0.01"></div>
+  <div class="row"><label data-tip="Fiber length/diameter ratio — reported in analysis (affects real moldability, not solved here).">λ fiber aspect ratio</label><input type="number" id="m_ar" value="40" min="1" step="1"><span class="unit">L/D</span></div>
+  <div class="row"><label data-tip="Folgar–Tucker orientation diffusion coefficient Cl·Ġ (rotational diffusivity of fibers).">CTK diffusion coef.</label><input type="number" id="m_ctk" value="0.005" min="0" max="0.5" step="0.001"><span class="unit">1/s×</span></div>
+  <div class="row"><label data-tip="Melt density at charge temperature.">ρ density</label><input type="number" id="m_rho" value="1900" min="100" step="10"><span class="unit">kg/m³</span></div>
+  <div class="row"><label data-tip="Specific heat capacity of the charge.">cp specific heat</label><input type="number" id="m_cp" value="1800" min="100" step="10"><span class="unit">J/kg·K</span></div>
+  <div class="row"><label data-tip="In-plane thermal conductivity (used qualitatively for cooling rate).">k cond.</label><input type="number" id="m_k" value="0.3" min="0.01" step="0.01"><span class="unit">W/m·K</span></div>
+  <div class="row"><label data-tip="Initial charge (blank) temperature.">T charge</label><input type="number" id="m_Tc" value="150" step="1"><span class="unit">°C</span></div>
+  <div class="row"><label data-tip="Mold wall temperature. In non-isothermal mode T relaxes toward this value.">T mold</label><input type="number" id="m_Tm" value="145" step="1"><span class="unit">°C</span></div>
+  <div class="row"><label data-tip="Arrhenius activation energy E. Viscosity multiplied by exp(E/R·(1/T − 1/Tref)).">E activation</label><input type="number" id="m_E" value="30000" step="500"><span class="unit">J/mol</span></div>
+  <div class="row"><label data-tip="First-order cure kinetics dα/dt = k·(1−α), k = k0·exp(−Ea/(R·T)).">k0 cure pre-exp.</label><input type="number" id="m_k0" value="0.006" min="0" step="0.001"><span class="unit">1/s</span></div>
+  <div class="row"><label data-tip="Activation energy of the curing reaction.">Ea cure</label><input type="number" id="m_Ea" value="40000" step="1000"><span class="unit">J/mol</span></div>
+  <div class="hint">Units note: model space is mm; pressures Pa; forces kN; temperatures °C (converted to K internally).</div>
+</div></details>
+
+<details class="grp" open><summary>Process &amp; Solver</summary><div class="grp-body">
+  <div class="row"><label data-tip="Thickness of the SMC charge before closing. Used in compression-force estimate.">Charge thickness</label><input type="number" id="p_hc" value="8" min="0.1" step="0.5"><span class="unit">mm</span></div>
+  <div class="row"><label data-tip="Final (open) cavity gap. Hele-Shaw conductance uses S=h³/(12η) with this gap.">Cavity thickness</label><input type="number" id="p_hgap" value="3" min="0.1" step="0.1"><span class="unit">mm</span></div>
+  <div class="row"><label data-tip="Platen closing speed. Used in squeeze-flow force estimate F ≈ 3ηVR²/(2h³) scaling.">Closing speed</label><input type="number" id="p_vc" value="2" min="0" step="0.1"><span class="unit">mm/s</span></div>
+  <div class="row"><label data-tip="Finished part thickness (reported).">Final part thickness</label><input type="number" id="p_hf" value="3" min="0.1" step="0.1"><span class="unit">mm</span></div>
+  <div class="row"><label data-tip="Solver physics model. See Help overlay for equations.">Solver model</label>
+    <select id="p_model" data-tip="A: Dijkstra fill-time front march. B: Hele-Shaw pressure ∇·(S∇p)=0 by red-black SOR. C: B + volume-of-fluid front tracking with air-trap detection.">
+      <option value="A">Fast (Dijkstra)</option>
+      <option value="B">Hele-Shaw pressure (SOR)</option>
+      <option value="C">VOF front tracking (B+C)</option>
+    </select></div>
+  <div class="row"><label data-tip="Injection pressure applied at gates/charge cells (Dirichlet BC). Flow front holds p=0.">Injection pressure</label><input type="number" id="p_pinj" value="5" min="0.01" step="0.5"><span class="unit">MPa</span></div>
+  <div class="row"><label data-tip="Grid resolution in cells across the model's longest dimension. Grid is capped at 400×400.">Grid resolution</label><input type="number" id="p_res" value="150" min="20" max="400" step="10"><span class="unit">cells</span></div>
+  <div class="row"><label data-tip="Extra edge cost when the front passes near an insert/wall (penalizes wall drag in Model A).">Wall-drag tightness</label><input type="number" id="p_wall" value="0.35" min="0" max="2" step="0.05"></div>
+  <div class="row"><label data-tip="Relative residual tolerance ‖r‖/‖r₀‖ for the SOR pressure solver.">SOR tolerance</label><input type="number" id="p_tol" value="1e-5" min="1e-9" max="0.1" step="1e-5"></div>
+  <div class="row"><label data-tip="Maximum SOR sweeps before giving up (status bar reports iterations/residual).">Max iterations</label><input type="number" id="p_maxit" value="4000" min="100" max="50000" step="100"></div>
+  <div class="row"><label data-tip="Time step Δt used by Model C front advance and cure/orientation integration.">Time step</label><input type="number" id="p_dt" value="0.2" min="0.01" step="0.05"><span class="unit">s</span></div>
+  <div class="row"><label data-tip="Total simulated press time. Slider spans 0…this value.">t_max horizon</label><input type="number" id="p_tmax" value="20" min="0.5" step="1"><span class="unit">s</span></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="p_noniso" data-tip="Non-isothermal: T(x,y,t) decays from charge temp toward mold temp; viscosity scaled by Arrhenius factor exp(E/R(1/T−1/Tref)).">Non-isothermal</span></div>
+  <div class="row"><label data-tip="Cooling time constant: larger = faster quench toward mold temperature.">Cool τ</label><input type="number" id="p_cooltau" value="20" min="1" step="1"><span class="unit">s</span></div>
+  <div class="row"><button id="btnRun" class="primary" data-tip="Rasterize geometry and run the selected solver (R).">▶ Run Solve</button>
+    <button id="btnCancel" class="danger" style="display:none" data-tip="Cancel the iterative solver safely.">■ Cancel</button></div>
+</div></details>
+
+<details class="grp" open><summary>Visualization</summary><div class="grp-body">
+  <div class="row"><label data-tip="Field shown by the smooth bilinear renderer.">View mode</label>
+    <select id="v_mode" data-tip="fill=fill time; pressure=pᵢ; fiber=fiber concentration; weld=weld-line strength; velocity=|v|; temp=temperature; cure=degree of cure α; orient=A11 orientation tensor component.">
+      <option value="fill">Fill time</option><option value="pressure">Pressure</option>
+      <option value="fiber">Fiber conc.</option><option value="weld">Weld lines</option>
+      <option value="velocity">Velocity</option><option value="temp">Temperature</option>
+      <option value="cure">Cure α</option><option value="orient">Orient. A11</option>
+    </select></div>
+  <div class="row"><label data-tip="Colormap applied to the active field.">Color map</label>
+    <select id="v_cmap" data-tip="Colormaps are computed as 256-entry LUTs in code (no external files). Diverging RdBu auto-applied for signed fields if chosen.">
+      <option value="jet">Jet</option><option value="viridis">Viridis</option>
+      <option value="magma">Magma</option><option value="turbo">Turbo</option>
+      <option value="gray">Grayscale</option><option value="div">Diverging (RdBu)</option>
+    </select></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="v_smooth" checked data-tip="Bilinear interpolation of cell values while drawing (smooth gradients). Unchecked = crisp cells.">Smooth render</span>
+    <span class="chk"><input type="checkbox" id="v_compare" data-tip="Split view: left half shows this view, right half shows the compare view.">Split compare</span>
+    <label>vs</label><select id="v_mode2"><option value="pressure">Pressure</option><option value="fill">Fill time</option><option value="cure">Cure α</option><option value="temp">Temperature</option><option value="fiber">Fiber</option><option value="velocity">Velocity</option><option value="orient">A11</option><option value="weld">Weld</option></select></div>
+  <div class="row"><label data-tip="Number of iso-value contours drawn between min and max of the field.">Iso-contours</label><input type="number" id="v_cont" value="0" min="0" max="20" step="1"></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="v_contlab" data-tip="Label each contour line with its value.">Contour labels</span>
+    <span class="chk"><input type="checkbox" id="v_stream" data-tip="Overlay streamlines seeded on a grid with arrowheads along the velocity field.">Streamlines</span>
+    <label>Density</label><input type="number" id="v_seed" value="10" min="2" max="40" step="1" data-tip="Streamline seeds per row/column of the subsample grid."></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="v_vec" data-tip="Draw velocity vectors as arrows on a subsampled grid.">Vector arrows</span>
+    <span class="chk"><input type="checkbox" id="v_glyph" data-tip="Draw fiber-orientation dashes (glyphs) aligned with principal direction of A.">Orient. glyphs</span></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="v_traps" checked data-tip="Red hatch over detected air traps (enclosed unfilled cells).">Air traps</span>
+    <span class="chk"><input type="checkbox" id="v_short" checked data-tip="Blue hatch over cells never filled within t_max (short shot).">Short-shot</span>
+    <span class="chk"><input type="checkbox" id="v_cureov" data-tip="Translucent orange overlay showing degree of cure α.">Cure overlay</span>
+    <span class="chk"><input type="checkbox" id="v_weldln" checked data-tip="Draw weld lines colored by estimated joint strength.">Weld lines</span></div>
+  <div class="row"><span class="chk"><input type="checkbox" id="v_grid" data-tip="Show raster grid lines.">Grid lines</span>
+    <span class="chk"><input type="checkbox" id="v_shapes" checked data-tip="Outline the raw vector shapes over the raster.">Shape outlines</span></div>
+</div></details>
+
+</nav>
+
+<!-- ============================ CENTER ============================ -->
+<section id="center">
+  <div id="toolbar">
+    <div class="seg" id="viewBtns" title="View modes">
+      <button data-m="fill" class="on">Fill</button><button data-m="pressure">Press</button>
+      <button data-m="fiber">Fiber</button><button data-m="weld">Weld</button><button data-m="velocity">Vel</button>
+      <button data-m="temp">Temp</button><button data-m="cure">Cure</button><button data-m="orient">A11</button>
+    </div>
+    <button id="btnPlay" data-tip="Animate the fill time (Space).">▶ Play</button>
+    <label style="font-size:11px;color:var(--dim)">Speed</label>
+    <select id="playSpeed" style="width:64px"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
+    <input type="range" id="timeSlider" min="0" max="20" step="0.05" value="20" style="flex:1;min-width:120px;accent-color:var(--acc)"
+      data-tip="Scrub through the fill timeline.">
+    <span id="timeLbl" style="font-variant-numeric:tabular-nums;min-width:70px">t = 20.0 s</span>
+    <button id="btnFit" data-tip="Fit model to canvas (F).">⤢ Fit</button>
+  </div>
+  <div id="canvasWrap">
+    <canvas id="view"></canvas>
+    <div id="tip"></div>
+    <div id="progress"><span id="progTxt">Solving…</span><button id="btnProgCancel" class="small danger">Cancel</button></div>
+  </div>
+  <div id="statusbar">
+    <span>Model: <b id="stModel">A</b></span><span>Grid: <b id="stGrid">—</b></span>
+    <span>Iters: <b id="stIter">—</b></span><span>Residual: <b id="stRes">—</b></span>
+    <span>Solve: <b id="stMs">— ms</b></span><span>t: <b id="stT">0 s</b></span>
+    <span>Filled: <b id="stFill">—%</b></span><span id="stMsg" style="color:var(--acc2)"></span>
+  </div>
+</section>
+
+<!-- ============================ ANALYSIS ============================ -->
+<aside id="analysis">
+  <details class="grp" open><summary>Analysis Summary</summary><div class="grp-body">
+    <div class="stat"><span>Total fill time</span><span id="an_fill">—</span></div>
+    <div class="stat"><span>Max pressure</span><span id="an_pmax">—</span></div>
+    <div class="stat"><span>Est. clamp force</span><span id="an_clamp">—</span></div>
+    <div class="stat"><span>Weld lines</span><span id="an_weld">—</span></div>
+    <div class="stat"><span>Air traps</span><span id="an_trap">—</span></div>
+    <div class="stat"><span>Unfilled cells</span><span id="an_unf">—</span></div>
+    <div class="stat"><span>Max cure α</span><span id="an_cure">—</span></div>
+    <div class="stat"><span>Mean A11 anisotropy</span><span id="an_a11">—</span></div>
+    <canvas id="histCv" class="mini" width="260" height="90"></canvas>
+    <div class="hint">Fill-time histogram of filled cavity cells.</div>
+  </div></details>
+  <details class="grp" open><summary>Legend</summary><div class="grp-body">
+    <canvas id="legCv" class="mini" width="260" height="64"></canvas>
+    <div class="hint" id="legNote">Colorbar ticks update with view mode &amp; time.</div>
+  </div></details>
+  <details class="grp"><summary>Probe (hover canvas)</summary><div class="grp-body" id="probeBox">
+    <div class="hint">Hover or click on the canvas to inspect all fields at a cell.</div>
+  </div></details>
+</aside>
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ============================ HELP MODAL ============================ -->
+<div class="modal" id="helpModal">
+  <div class="modal-card">
+    <h2>SMC Compression Molding Simulator — Help</h2>
+    <h3 style="font-size:13px;color:var(--acc2)">Solver models (approximate, documented)</h3>
+    <table>
+      <tr><td><b>A · Fast (Dijkstra)</b></td><td>Fill time = shortest travel time over the cavity graph. Edge cost t = ℓ/ū with ū ∝ S·|∇p| lumped into a permeability-like weight; wall proximity adds drag penalty (wall tightness × 1/dist). Fiber load scales viscosity η=η₀(1+4vf).</td></tr>
+      <tr><td><b>B · Hele-Shaw</b></td><td>∇·(S∇p)=0 in cavity, S=h²_gap/(12η) (gap in m), Dirichlet p=p_inj on gates/charge, p=0 on exposed flow front, Neumann elsewhere. Solved by red-black Gauss-Seidel with SOR (ω≈1.9). η = η₀(1+4vf)·γ̇ⁿ⁻¹, γ̇ ≈ (6·|∇p|·h_gap)/(12η·h_gap) updated every 10 sweeps.</td></tr>
+      <tr><td><b>C · VOF front</b></td><td>Fill fraction f∈[0,1] advanced with u = −(h²/12η)∇p using semi-Lagrangian flux upwinding per Δt. Air traps: unfilled cells whose 4-neighbors all become filled before they do.</td></tr>
+      <tr><td><b>Non-iso</b></td><td>T(x,y,t): filled cells decay exponentially toward T_mold with τ=Cool τ; η scaled by exp(E/R·(1/T−1/T_ref)) (Arrhenius).</td></tr>
+      <tr><td><b>Cure</b></td><td>dα/dt = k(T)(1−α), k = k0·exp(−Ea/(R·T)), integrated per Δt over sim time.</td></tr>
+      <tr><td><b>Orient.</b></td><td>Advancement of 2D tensor A by local velocity gradient + isotropic Folgar–Tucker relaxation: A ← A + Δt[(∇v)·A + A·(∇v)ᵀ − 2ClĠ(I/2? − A)] (clamped to eigenvalues ≥0, trace 1). View shows A11−A22 anisotropy.</td></tr>
+      <tr><td><b>Weld</b></td><td>Cell reached simultaneously from ≥2 fronts ⇒ weld. Strength ≈ exp(−Δt_front/τ_w): larger arrival-time difference ⇒ weaker joint.</td></tr>
+      <tr><td><b>Clamp</b></td><td>F = Σ p·A_cell over cavity projected to kN; includes squeeze-flow term 3ηV R²/(2h³) order estimate.</td></tr>
+    </table>
+    <h3 style="font-size:13px;color:var(--acc2)">Keyboard</h3>
+    <table><tr><td><span class="kbd">?</span></td><td>This help</td><td><span class="kbd">R</span></td><td>Run solve</td><td><span class="kbd">Space</span></td><td>Play/Pause</td></tr>
+    <tr><td><span class="kbd">Ctrl+Z/Y</span></td><td>Undo/Redo</td><td><span class="kbd">Ctrl+C/V/D</span></td><td>Copy/Paste/Duplicate</td><td><span class="kbd">Del</span></td><td>Delete selection</td></tr>
+    <tr><td><span class="kbd">F</span></td><td>Fit view</td><td><span class="kbd">Esc</span></td><td>Cancel action/gate mode</td><td><span class="kbd">1..8</span></td><td>View modes</td></tr></table>
+    <p class="hint">All units: mm, s, Pa (inputs may be MPa where labeled), °C, kN. Everything runs offline in one file.</p>
+    <div style="text-align:right"><button onclick="document.getElementById('helpModal').classList.remove('open')">Close</button></div>
+  </div>
+</div>
+<input type="file" id="csvSkip" style="display:none">
+</body>
+</html>
