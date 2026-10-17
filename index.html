@@ -1622,7 +1622,7 @@ function loadProjectText(txt){
   pushHistory();refreshShapeList();buildEditor();fitView();runSolve();
   setMsg('Project loaded (schema v'+o.schema+')');
 }
-function showLoadWarn(msg){document.getElementById('loadWarn').textContent=msg;}
+function showLoadWarn(msg){const el=document.getElementById('loadWarn');if(el)el.textContent=msg;}
 
 // ---- PNG export: render at current size into a fresh canvas & download ----
 function exportPNG(){
@@ -1727,15 +1727,17 @@ function drawLegend(){
 }
 function updateAnalysisPanel(){
   if(!F.t||!G.cav)return;
+  // null-safe accessor: analysis panel must never crash headless or before DOM ready
   const q=id=>document.getElementById(id);
-  q('an_fill').textContent=F.tFillMax.toFixed(2)+' s';
-  q('an_pmax').textContent=(F.pMax/1e6).toFixed(3)+' MPa';
-  q('an_clamp').textContent=F.clampKN.toFixed(1)+' kN (+squeeze ≈'+F.squeezeKN.toFixed(0)+' kN)';
-  q('an_weld').textContent=F.nWeld+' cells';
-  q('an_trap').textContent=F.nTrap;
-  q('an_unf').textContent=F.nUnf+' / '+F.cavN;
-  q('an_cure').textContent=F.maxCure.toFixed(3);
-  q('an_a11').textContent=F.meanAniso.toFixed(3);
+  const set=(id,v)=>{const el=q(id);if(el)el.textContent=v;};
+  set('an_fill',F.tFillMax.toFixed(2)+' s');
+  set('an_pmax',(F.pMax/1e6).toFixed(3)+' MPa');
+  set('an_clamp',F.clampKN.toFixed(1)+' kN (+squeeze ≈'+F.squeezeKN.toFixed(0)+' kN)');
+  set('an_weld',F.nWeld+' cells');
+  set('an_trap',String(F.nTrap));
+  set('an_unf',F.nUnf+' / '+F.cavN);
+  set('an_cure',F.maxCure.toFixed(3));
+  set('an_a11',F.meanAniso.toFixed(3));
   drawHistogram();drawLegend();
 }
 
@@ -1770,6 +1772,9 @@ function probeText(i,j){
 // DOM accessor: returns null (never throws) when the element is absent, so all
 // UI reads degrade gracefully in headless/embedded contexts.
 const $=id=>document.getElementById(id);
+// setText/setHTML: null-safe writers used across status bar, panels and overlays.
+const setText=(id,v)=>{const el=$(id);if(el)el.textContent=v;};
+const setHTML=(id,v)=>{const el=$(id);if(el)el.innerHTML=v;};
 // View mode mirrored into S so rendering works even if #v_mode is absent.
 S.viewMode='fill';
 function getViewMode(){const el=$('v_mode');if(el)return el.value;return S.viewMode;}
@@ -1779,9 +1784,9 @@ function chk(id,def){const el=$(id);return el?(el.type==='checkbox'?el.checked:!
 function selVal(id,def){const el=$(id);return el&&el.value?el.value:def;}
 function clampNum(v,lo,hi){v=+v;if(!isFinite(v))return lo;return Math.max(lo,Math.min(hi,v));}
 function countOnes(a){let n=0;for(let i=0;i<a.length;i++)n+=a[i]?1:0;return n;}
-function setMsg(msg,warn){const el=$('stMsg');el.textContent=msg;el.style.color=warn?'var(--warn)':'var(--acc2)';if(msg&&!warn)setTimeout(()=>{if(el.textContent===msg)el.textContent='';},4000);}
-function setProg(txt){$('progTxt').textContent=txt||'Solving…';}
-function showProg(on){$('progress').style.display=on?'flex':'none';$('btnCancel').style.display=on?'inline-block':'none';}
+function setMsg(msg,warn){const el=$('stMsg');if(!el)return;el.textContent=msg;el.style.color=warn?'var(--warn)':'var(--acc2)';if(msg&&!warn)setTimeout(()=>{if(el.textContent===msg)el.textContent='';},4000);}
+function setProg(txt){setText('progTxt',txt||'Solving…');}
+function showProg(on){const p=$('progress'),b=$('btnCancel');if(p)p.style.display=on?'flex':'none';if(b)b.style.display=on?'inline-block':'none';}
 function markDirty(){S.dirty=true;}
 function setInputValue(id,v){
   const el=$(id);if(!el)return;
@@ -1817,7 +1822,7 @@ function setNoniso(b){P.noniso=!!b;const el=document.getElementById('p_noniso');
 
 // ---- shape list UI (layers/z-order visible top→bottom as last-drawn-on-top) ----
 function refreshShapeList(){
-  const box=$('shapeList');box.innerHTML='';
+  const box=$('shapeList');if(!box)return;box.innerHTML='';
   for(let idx=S.shapes.length-1;idx>=0;idx--){
     const sh=S.shapes[idx];
     const div=document.createElement('div');
@@ -1837,6 +1842,7 @@ function refreshShapeList(){
 // ---- numeric editor panel for selection ----
 function buildEditor(){
   const body=$('editorBody');
+  if(!body)return;
   const sel=selShapes();
   if(!sel.length){body.innerHTML='<div class="hint">Select one or more shapes to edit exact values.</div>';return;}
   const fields=[
@@ -2076,7 +2082,7 @@ function setupCanvasEvents(){
   window.addEventListener('keydown',onKey);
 }
 
-function updateProbePanel(txt){$('probeBox').innerHTML='<pre style="margin:0;font-size:10.5px;white-space:pre-wrap;color:var(--txt)">'+txt+'</pre>';}
+function updateProbePanel(txt){const el=$('probeBox');if(el)el.innerHTML='<pre style="margin:0;font-size:10.5px;white-space:pre-wrap;color:var(--txt)">'+txt+'</pre>';}
 
 // ---- rubber-band drawing hook (called from draw via drag state) ----
 function drawRubber(){
@@ -2103,7 +2109,7 @@ function runSolve(){
   showProg(true);setProg('Rasterized '+G.nx+'×'+G.ny);
   const model=P.model;
   S.solInfo.model=model;
-  $('hdrModel').textContent={A:'Fast (Dijkstra)',B:'Hele-Shaw SOR',C:'VOF front tracking'}[model];
+  setText('hdrModel',{A:'Fast (Dijkstra)',B:'Hele-Shaw SOR',C:'VOF front tracking'}[model]);
   // temperature init before viscosity coupling uses it
   F.temp.fill(P.m_Tc);
   const finish=(ok)=>{
@@ -2158,32 +2164,32 @@ function deriveFillFromPressure(){
 }
 
 // ---- status bar / slider ----
-function updateStatusGrid(){$('stGrid').textContent=(G.nx||'—')+'×'+(G.ny||'—');}
+function updateStatusGrid(){setText('stGrid',(G.nx||'—')+'×'+(G.ny||'—'));}
 function updateStatus(ms){
-  $('stModel').textContent=S.solInfo.model;
-  $('stIter').textContent=SOR.iters||'—';
-  $('stRes').textContent=SOR.res?SOR.res.toExponential(1):'—';
-  $('stMs').textContent=ms+' ms';
+  setText('stModel',S.solInfo.model);
+  setText('stIter',SOR.iters||'—');
+  setText('stRes',SOR.res?SOR.res.toExponential(1):'—');
+  setText('stMs',ms+' ms');
   refreshFilledPct();
 }
 function refreshFilledPct(){
   if(!F.t)return;
   let n=0,f=0;const N=G.nx*G.ny;
   for(let k=0;k<N;k++)if(G.cav[k]){n++;if(isFinite(F.t[k])&&F.t[k]<=S.tCur)f++;}
-  $('stFill').textContent=n?(f/n*100).toFixed(1)+'%':'—%';
-  $('stT').textContent=S.tCur.toFixed(2)+' s';
+  setText('stFill',n?(f/n*100).toFixed(1)+'%':'—%');
+  setText('stT',S.tCur.toFixed(2)+' s');
 }
 function refreshTimeSlider(){
   const sl=$('timeSlider');
   sl.max=P.p_tmax;
   if(S.tCur>P.p_tmax)S.tCur=P.p_tmax;
-  sl.value=S.tCur;$('timeLbl').textContent='t = '+S.tCur.toFixed(1)+' s';
+  sl.value=S.tCur;setText('timeLbl','t = '+S.tCur.toFixed(1)+' s');
 }
 
 // ---- playback ----
 function togglePlay(){
   S.playing=!S.playing;
-  $('btnPlay').textContent=S.playing?'⏸ Pause':'▶ Play';
+  setText('btnPlay',S.playing?'⏸ Pause':'▶ Play');
   if(S.playing){S.lastPlayTs=performance.now();playStep();}
   else cancelAnimationFrame(S.playRAF);
 }
@@ -2193,7 +2199,7 @@ function playStep(){
   S.tCur+=dtms/1000*S.playSpeed*(P.p_tmax/8);   // full sweep ≈ 8 s at 1×
   if(S.tCur>=P.p_tmax){S.tCur=0;}               // loop animation
   $('timeSlider').value=S.tCur;
-  $('timeLbl').textContent='t = '+S.tCur.toFixed(1)+' s';
+  setText('timeLbl','t = '+S.tCur.toFixed(1)+' s');
   tempField();cureField();computeStats();       // time-dependent fields follow slider
   refreshFilledPct();updateAnalysisPanel();markDirty();
   S.playRAF=requestAnimationFrame(playStep);
@@ -2208,7 +2214,7 @@ function setViewMode(m){
 
 // ---- gates ----
 function updateGateCount(){
-  $('gateCount').textContent=S.gates.length?('Gates placed: '+S.gates.length):'No gates — charge contact is used as inlet.';
+  setText('gateCount',S.gates.length?('Gates placed: '+S.gates.length):'No gates — charge contact is used as inlet.');
 }
 
 // ---- keyboard ----
@@ -2309,7 +2315,7 @@ function boot(){
   $('p_model').onchange=runSolve;
   $('p_noniso').onchange=runSolve;
   $('btnRun').onclick=runSolve;
-  $('btnCancel').onclick=$('btnProgCancel').onclick=()=>{S.cancelFlag=true;setMsg('Cancel requested…',true);};
+  {const a=$('btnCancel'),b=$('btnProgCancel');const f=()=>{S.cancelFlag=true;setMsg('Cancel requested…',true);};if(a)a.onclick=f;if(b)b.onclick=f;}
 
   // visualization toggles just redraw
   for(const id of ['v_smooth','v_compare','v_stream','v_vec','v_glyph','v_traps','v_short','v_cureov','v_weldln','v_grid','v_shapes','v_contlab'])
@@ -2325,7 +2331,7 @@ function boot(){
   $('playSpeed').onchange=e=>{S.playSpeed=parseFloat(e.target.value)||1;};
   $('timeSlider').addEventListener('input',e=>{
     S.tCur=clampNum(parseFloat(e.target.value),0,P.p_tmax);
-    $('timeLbl').textContent='t = '+S.tCur.toFixed(1)+' s';
+    setText('timeLbl','t = '+S.tCur.toFixed(1)+' s');
     tempField();cureField();computeStats();refreshFilledPct();updateAnalysisPanel();markDirty();
   });
   $('btnFit').onclick=fitView;
